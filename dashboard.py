@@ -5,17 +5,28 @@ import numpy as np
 st.set_page_config(page_title="Simulador Transición Energética Argentina", layout="wide")
 
 st.title("⚡ Simulador de Transición Energética Argentina 2035")
-st.markdown("Ajustá los sliders para ver cómo cambia la matriz y el impacto en presupuesto, empleo y emisiones.")
+st.markdown("Ajustá los sliders para ver cómo cambia la matriz y el impacto en presupuesto, empleo, emisiones y retorno económico.")
 
-# ── CONSTANTES BASE ──────────────────────────────────────────────────────────
-PBI_ARG = 620_000       # USD millones
-DEMANDA_2024 = 145_000  # GWh
-TRABAJADORES_ACTUALES = 52_000
+# ── CONSTANTES ───────────────────────────────────────────────────────────────
+PBI_ARG        = 620_000
+DEMANDA_2024   = 145_000   # GWh
+HORAS_AÑO      = 8_760
+TRABAJADORES_TERMICOS = 52_000
 COSTO_RECONVERSION = 90_000
-COSTO_RETIRO = 40_000
-PORC_RETIRO = 0.35
+COSTO_RETIRO       = 40_000
+PORC_RETIRO        = 0.35
 
-# Capacidad instalada 2024 por fuente (GW) — base para calcular NUEVA capacidad
+# Factor de planta real por tecnología
+FACTOR_PLANTA = {
+    "Térmica fósil": 0.45,
+    "Hidro":         0.40,
+    "Nuclear":       0.90,
+    "Eólica":        0.30,
+    "Solar":         0.22,
+    "WtE":           0.75,
+}
+
+# Capacidad instalada 2024 (GW)
 CAP_2024 = {
     "Térmica fósil": 25.8,
     "Hidro":         10.9,
@@ -24,10 +35,9 @@ CAP_2024 = {
     "Solar":          1.1,
     "WtE":            0.0,
 }
-CAP_TOTAL_2035 = 45.0  # GW proyectados
 
-# Costo de inversión SOLO para capacidad NUEVA (USD M / GW)
-COSTO_NUEVO_POR_GW = {
+# Costo de inversión por GW nuevo (USD M/GW)
+CAPEX_POR_GW = {
     "Eólica":        1_200,
     "Solar":           900,
     "Nuclear":       8_500,
@@ -36,23 +46,38 @@ COSTO_NUEVO_POR_GW = {
     "Térmica fósil":   400,
 }
 
-# Costos fijos del plan (transmisión, BESS, eficiencia)
-COSTOS_FIJOS = {
-    "Transmisión AT": 5_200,
-    "BESS":           2_200,
-    "Eficiencia":       800,
+# Costo operativo por GWh (USD/GWh) — combustible + O&M
+OPEX_POR_GWH = {
+    "Térmica fósil": 80,
+    "Hidro":          5,
+    "Nuclear":        12,
+    "Eólica":          8,
+    "Solar":           5,
+    "WtE":            20,
 }
 
+# Empleos O&M permanentes por GW instalado
+EMPLEOS_POR_GW = {
+    "Eólica":        400,
+    "Solar":         300,
+    "Nuclear":       800,
+    "WtE":           700,
+    "Hidro":         200,
+    "Térmica fósil": 2_000,
+}
+
+# Emisiones CO2 por GWh (tCO2/GWh)
 EMISIONES_POR_GWH = {
-    "Eólica": 0, "Solar": 0, "Nuclear": 0,
-    "WtE": 50, "Hidro": 4, "Térmica fósil": 490,
+    "Térmica fósil": 490,
+    "Hidro":           4,
+    "Nuclear":         0,
+    "Eólica":          0,
+    "Solar":           0,
+    "WtE":            50,
 }
 
-# Empleos permanentes O&M por GW instalado
-EMPLEOS_OM_POR_GW = {
-    "Eólica": 400, "Solar": 300, "Nuclear": 800,
-    "WtE": 700, "Hidro": 200, "Térmica fósil": 2_000,
-}
+COSTOS_FIJOS = {"Transmisión AT": 5_200, "BESS": 2_200, "Eficiencia": 800}
+AHORRO_GNL_ANUAL = 4_200  # USD M/año desde 2033
 
 COLORES = {
     "Térmica fósil": "#c0392b", "Hidro": "#2980b9",
@@ -60,139 +85,153 @@ COLORES = {
     "Solar": "#f39c12", "WtE": "#7f8c8d",
 }
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+# ── SIDEBAR ──────────────────────────────────────────────────────────────────
 st.sidebar.header("🎛️ Ajustá la matriz 2035")
-st.sidebar.markdown("Los porcentajes deben sumar 100%")
+st.sidebar.markdown("Los % representan participación en la **generación anual**. Deben sumar 100%.")
 
-termica  = st.sidebar.slider("🔴 Térmica fósil (%)", 0, 80, 10, step=1)
-hidro    = st.sidebar.slider("🔵 Hidro (%)",          0, 40, 13, step=1)
-nuclear  = st.sidebar.slider("🟣 Nuclear (%)",         0, 60, 20, step=1)
-eolica   = st.sidebar.slider("🟢 Eólica (%)",          0, 60, 32, step=1)
-solar    = st.sidebar.slider("🟡 Solar (%)",            0, 40, 18, step=1)
-wte      = st.sidebar.slider("⚫ WtE (%)",              0, 20,  7, step=1)
+termica = st.sidebar.slider("🔴 Térmica fósil (%)", 0, 80, 10, step=1)
+hidro   = st.sidebar.slider("🔵 Hidro (%)",          0, 40, 13, step=1)
+nuclear = st.sidebar.slider("🟣 Nuclear (%)",         0, 40, 20, step=1)
+eolica  = st.sidebar.slider("🟢 Eólica (%)",          0, 70, 32, step=1)
+solar   = st.sidebar.slider("🟡 Solar (%)",            0, 50, 18, step=1)
+wte     = st.sidebar.slider("⚫ WtE (%)",              0, 20,  7, step=1)
 
 total = termica + hidro + nuclear + eolica + solar + wte
 if total != 100:
-    st.sidebar.error(f"⚠️ Total: {total}% — debe ser exactamente 100%")
+    st.sidebar.error(f"⚠️ Total: {total}% — debe ser 100%")
 else:
     st.sidebar.success(f"✅ Total: {total}%")
 
-# ── CÁLCULOS ──────────────────────────────────────────────────────────────────
+if total != 100:
+    st.warning("Ajustá los sliders para que sumen 100%.")
+    st.stop()
+
+# ── CÁLCULOS ─────────────────────────────────────────────────────────────────
 mix = {
     "Térmica fósil": termica, "Hidro": hidro, "Nuclear": nuclear,
     "Eólica": eolica, "Solar": solar, "WtE": wte,
 }
 
 demanda_2035 = DEMANDA_2024 * (1.03 ** 10)
-gen_por_fuente = {k: v/100 * demanda_2035 for k, v in mix.items()}
 
-# Capacidad 2035 por fuente
-cap_2035 = {k: v/100 * CAP_TOTAL_2035 for k, v in mix.items()}
+# Generación por fuente (GWh)
+gen_2035 = {k: v/100 * demanda_2035 for k, v in mix.items()}
 
-# Capacidad NUEVA = 2035 - 2024 (solo positivos, no contamos retiros como inversión)
-cap_nueva = {k: max(0, cap_2035[k] - CAP_2024[k]) for k in mix}
+# GW instalados necesarios según factor de planta real
+gw_2035 = {k: gen_2035[k] / (HORAS_AÑO * FACTOR_PLANTA[k]) for k in mix}
+gw_total_2035 = sum(gw_2035.values())
 
-# Emisiones
-emisiones_total = sum(gen_por_fuente[k] * EMISIONES_POR_GWH[k] / 1_000_000 for k in mix)
-emisiones_2024 = 52.0
+# GW nuevos a construir (solo incrementos)
+gw_nuevo = {k: max(0, gw_2035[k] - CAP_2024[k]) for k in mix}
 
-# Presupuesto: solo capacidad nueva + costos fijos + transición laboral
-inversion_generacion = {k: cap_nueva[k] * COSTO_NUEVO_POR_GW[k] for k in mix}
+# Inversión en generación
+inversion_gen = {k: gw_nuevo[k] * CAPEX_POR_GW[k] for k in mix}
 
+# Transición laboral
 reduccion_termica = max(0, (61 - termica) / 61)
-desplazados = int(TRABAJADORES_ACTUALES * reduccion_termica)
+desplazados   = int(TRABAJADORES_TERMICOS * reduccion_termica)
 a_reconvertir = int(desplazados * (1 - PORC_RETIRO))
-a_retiro = desplazados - a_reconvertir
+a_retiro      = desplazados - a_reconvertir
 costo_laboral = (a_reconvertir * COSTO_RECONVERSION + a_retiro * COSTO_RETIRO) / 1_000_000
 
-presupuesto = {
-    **inversion_generacion,
-    **COSTOS_FIJOS,
-    "Transición laboral": costo_laboral,
-}
+# Presupuesto total
+presupuesto = {**inversion_gen, **COSTOS_FIJOS, "Transición laboral": costo_laboral}
 total_presupuesto = sum(presupuesto.values())
 porc_pbi = total_presupuesto / PBI_ARG * 100
 
-# Empleos nuevos O&M permanentes (excluye térmica fósil)
-empleos_nuevos = sum(cap_2035[k] * EMPLEOS_OM_POR_GW[k] for k in mix if k != "Térmica fósil")
+# Emisiones
+emisiones_2024 = 52.0
+emisiones_2035 = sum(gen_2035[k] * EMISIONES_POR_GWH[k] / 1_000_000 for k in mix)
+reduccion_emisiones = (emisiones_2024 - emisiones_2035) / emisiones_2024 * 100
 
-# ── MÉTRICAS ──────────────────────────────────────────────────────────────────
-if total != 100:
-    st.warning("Ajustá los sliders para que sumen 100% y ver los resultados.")
-    st.stop()
+# Empleos
+empleos_nuevos = sum(gw_2035[k] * EMPLEOS_POR_GW[k] for k in mix if k != "Térmica fósil")
+cobertura = empleos_nuevos / max(desplazados, 1)
 
+# ROI y ahorros operativos
+mix_2024_base = {"Térmica fósil": 0.61, "Hidro": 0.16, "Nuclear": 0.08,
+                 "Eólica": 0.10, "Solar": 0.03, "WtE": 0.02}
+costo_op_2024 = sum(mix_2024_base[k] * DEMANDA_2024 * OPEX_POR_GWH[k] for k in mix_2024_base)
+costo_op_2035 = sum((mix[k]/100) * demanda_2035 * OPEX_POR_GWH[k] for k in mix)
+ahorro_op_anual = (costo_op_2024 - costo_op_2035) / 1_000  # USD M
+ahorro_total_anual = ahorro_op_anual + AHORRO_GNL_ANUAL
+payback = total_presupuesto / max(ahorro_total_anual, 1)
+roi_20 = (ahorro_total_anual * 20 - total_presupuesto) / total_presupuesto * 100
+valor_neto_20 = ahorro_total_anual * 20 - total_presupuesto
+
+# ── MÉTRICAS PRINCIPALES ─────────────────────────────────────────────────────
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("💰 Inversión total", f"USD {total_presupuesto:,.0f}M", f"{porc_pbi:.1f}% del PBI")
-col2.metric("🌿 Emisiones CO₂ 2035", f"{emisiones_total:.1f} Mt", f"{emisiones_total - emisiones_2024:.1f} Mt vs 2024")
+col2.metric("🌿 Emisiones CO₂ 2035", f"{emisiones_2035:.1f} Mt", f"{emisiones_2035 - emisiones_2024:.1f} Mt vs 2024")
 col3.metric("👷 Trabajadores desplazados", f"{desplazados:,}", f"{a_reconvertir:,} reconversión / {a_retiro:,} retiro")
-col4.metric("🔋 Renovables + Nuclear", f"{eolica + solar + hidro + nuclear + wte}%", "sin térmica fósil")
+col4.metric("⚡ Capacidad instalada 2035", f"{gw_total_2035:.0f} GW", f"vs 44 GW en 2024")
 
 st.markdown("---")
 
-# ── GRÁFICOS ──────────────────────────────────────────────────────────────────
-row1_col1, row1_col2 = st.columns(2)
+# ── GRÁFICOS FILA 1 ──────────────────────────────────────────────────────────
+r1c1, r1c2 = st.columns(2)
 
-with row1_col1:
-    st.subheader("🥧 Matriz eléctrica 2035")
+with r1c1:
+    st.subheader("🥧 Matriz eléctrica 2035 (generación)")
     fig1, ax1 = plt.subplots(figsize=(6, 5))
-    valores = [v for v in mix.values() if v > 0]
-    etiquetas = [f"{k}\n{v}%" for k, v in mix.items() if v > 0]
-    colores = [COLORES[k] for k, v in mix.items() if v > 0]
-    ax1.pie(valores, labels=etiquetas, colors=colores, autopct='%1.0f%%',
+    vals = [v for v in mix.values() if v > 0]
+    labs = [f"{k}\n{v}%" for k, v in mix.items() if v > 0]
+    cols = [COLORES[k] for k, v in mix.items() if v > 0]
+    ax1.pie(vals, labels=labs, colors=cols, autopct='%1.0f%%',
             startangle=90, textprops={'fontsize': 8})
-    ax1.set_title("Participación por fuente", fontsize=11)
+    ax1.set_title("Participación en generación anual", fontsize=11)
     st.pyplot(fig1)
     plt.close()
 
-with row1_col2:
-    st.subheader("📊 Simulación vs Plan original")
-    original = {"Térmica fósil": 10, "Hidro": 13, "Nuclear": 20, "Eólica": 32, "Solar": 18, "WtE": 7}
+with r1c2:
+    st.subheader("📊 GW instalados necesarios vs 2024")
     fuentes = list(mix.keys())
     x = np.arange(len(fuentes))
-    width = 0.35
+    w = 0.35
     fig2, ax2 = plt.subplots(figsize=(6, 5))
-    ax2.bar(x - width/2, [original[f] for f in fuentes], width,
-            label='Plan original', color=[COLORES[f] for f in fuentes], alpha=0.5)
-    ax2.bar(x + width/2, [mix[f] for f in fuentes], width,
-            label='Tu simulación', color=[COLORES[f] for f in fuentes], alpha=1)
+    ax2.bar(x - w/2, [CAP_2024[f] for f in fuentes], w,
+            label='2024 (actual)', color=[COLORES[f] for f in fuentes], alpha=0.5)
+    ax2.bar(x + w/2, [gw_2035[f] for f in fuentes], w,
+            label='2035 (necesario)', color=[COLORES[f] for f in fuentes], alpha=1)
     ax2.set_xticks(x)
     ax2.set_xticklabels(fuentes, rotation=30, ha='right', fontsize=8)
-    ax2.set_ylabel('Participación (%)')
+    ax2.set_ylabel('GW instalados')
     ax2.legend()
-    ax2.set_title("Comparación con plan original", fontsize=11)
+    ax2.set_title("Capacidad instalada por fuente (GW)", fontsize=11)
     st.pyplot(fig2)
     plt.close()
 
 st.markdown("---")
-row2_col1, row2_col2 = st.columns(2)
 
-with row2_col1:
+# ── GRÁFICOS FILA 2 ──────────────────────────────────────────────────────────
+r2c1, r2c2 = st.columns(2)
+
+with r2c1:
     st.subheader("💰 Desglose de inversión")
     fig3, ax3 = plt.subplots(figsize=(6, 5))
-    # Solo mostrar items con valor > 0
     items = {k: v for k, v in presupuesto.items() if v > 0}
-    componentes = list(items.keys())
-    valores_p = list(items.values())
-    colores_p = ['#27ae60','#8e44ad','#7f8c8d','#2980b9','#f39c12','#c0392b',
-                 '#e67e22','#3498db','#95a5a6','#e74c3c']
-    bars = ax3.barh(componentes, valores_p, color=colores_p[:len(componentes)])
+    comp = list(items.keys())
+    vals_p = list(items.values())
+    colors_p = ['#c0392b','#2980b9','#8e44ad','#27ae60','#f39c12','#7f8c8d',
+                '#e67e22','#3498db','#95a5a6','#e74c3c']
+    bars3 = ax3.barh(comp, vals_p, color=colors_p[:len(comp)])
     ax3.set_xlabel('USD Millones')
     ax3.set_title(f'Total: USD {total_presupuesto:,.0f}M ({porc_pbi:.1f}% PBI)', fontsize=10)
-    for bar, val in zip(bars, valores_p):
+    for bar, val in zip(bars3, vals_p):
         ax3.text(bar.get_width() + 10, bar.get_y() + bar.get_height()/2,
                 f'${val:,.0f}M', va='center', fontsize=7)
     plt.tight_layout()
     st.pyplot(fig3)
     plt.close()
 
-with row2_col2:
+with r2c2:
     st.subheader("👷 Impacto laboral")
     fig4, ax4 = plt.subplots(figsize=(6, 5))
-    categorias = ['Desplazados\ntotal', 'A reconvertir', 'A retiro', 'Empleos\nnuevos O&M']
-    valores_l = [desplazados, a_reconvertir, a_retiro, int(empleos_nuevos)]
-    colores_l = ['#e74c3c', '#e67e22', '#95a5a6', '#27ae60']
-    bars4 = ax4.bar(categorias, valores_l, color=colores_l)
-    for bar, val in zip(bars4, valores_l):
+    cats = ['Desplazados\ntotal', 'A reconvertir', 'A retiro', 'Empleos\nnuevos O&M']
+    vals_l = [desplazados, a_reconvertir, a_retiro, int(empleos_nuevos)]
+    cols_l = ['#e74c3c', '#e67e22', '#95a5a6', '#27ae60']
+    bars4 = ax4.bar(cats, vals_l, color=cols_l)
+    for bar, val in zip(bars4, vals_l):
         ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 200,
                 f'{val:,}', ha='center', fontsize=9, fontweight='bold')
     ax4.set_ylabel('Personas')
@@ -202,21 +241,58 @@ with row2_col2:
 
 st.markdown("---")
 
-# ── ANÁLISIS ──────────────────────────────────────────────────────────────────
+# ── ROI Y AHORROS ────────────────────────────────────────────────────────────
+st.subheader("📈 Retorno económico de la transición")
+
+rc1, rc2, rc3, rc4 = st.columns(4)
+rc1.metric("⚙️ Ahorro operativo anual", f"USD {ahorro_op_anual:,.0f}M", "vs matriz 2024")
+rc2.metric("🛢️ Ahorro GNL anual", f"USD {AHORRO_GNL_ANUAL:,}M", "desde 2033")
+rc3.metric("📅 Payback simple", f"{payback:.1f} años", "recupero de inversión")
+rc4.metric("💵 ROI bruto 20 años", f"{roi_20:.0f}%", f"Valor neto USD {valor_neto_20:,.0f}M")
+
+# Gráfico de flujo de caja acumulado
+años = list(range(0, 21))
+flujo_acum = [-total_presupuesto + ahorro_total_anual * a for a in años]
+
+fig5, ax5 = plt.subplots(figsize=(10, 4))
+colores_flujo = ['#27ae60' if v >= 0 else '#c0392b' for v in flujo_acum]
+ax5.bar(años, flujo_acum, color=colores_flujo, alpha=0.8)
+ax5.axhline(y=0, color='black', linewidth=1)
+ax5.axvline(x=payback, color='orange', linewidth=2, linestyle='--', label=f'Payback: {payback:.1f} años')
+ax5.set_xlabel('Años desde inicio del plan')
+ax5.set_ylabel('USD Millones (acumulado)')
+ax5.set_title('Flujo de caja acumulado — Inversión vs Ahorros operativos + GNL', fontsize=11)
+ax5.legend()
+ax5.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}M'))
+plt.tight_layout()
+st.pyplot(fig5)
+plt.close()
+
+st.markdown(f"""
+**Supuestos del cálculo de ROI:**
+- Costo operativo matriz actual (combustible + O&M): USD {costo_op_2024/1_000:,.0f}M/año
+- Costo operativo matriz 2035 con tu mix: USD {costo_op_2035/1_000:,.0f}M/año  
+- Ahorro en importación de GNL desde 2033: USD {AHORRO_GNL_ANUAL:,}M/año (fuente: documento original)
+- No incluye inflación, tasa de descuento ni externalidades ambientales
+- Vida útil promedio de los activos: 25-40 años
+""")
+
+st.markdown("---")
+
+# ── ANÁLISIS DE ESCENARIO ────────────────────────────────────────────────────
 st.subheader("📋 Análisis de tu escenario")
-col_a, col_b, col_c = st.columns(3)
+ca, cb, cc = st.columns(3)
 
-with col_a:
+with ca:
     st.markdown("**🌿 Ambiental**")
-    reduccion = ((emisiones_2024 - emisiones_total) / emisiones_2024) * 100
-    if reduccion >= 45:
-        st.success(f"Reducción de {reduccion:.1f}% ✅\nMeta del plan: 45%")
-    elif reduccion >= 20:
-        st.warning(f"Reducción de {reduccion:.1f}% ⚠️\nMeta del plan: 45%")
+    if reduccion_emisiones >= 45:
+        st.success(f"Reducción de {reduccion_emisiones:.1f}% ✅\nMeta del plan: 45%")
+    elif reduccion_emisiones >= 20:
+        st.warning(f"Reducción de {reduccion_emisiones:.1f}% ⚠️\nMeta: 45%")
     else:
-        st.error(f"Reducción de solo {reduccion:.1f}% ❌\nMeta del plan: 45%")
+        st.error(f"Reducción de {reduccion_emisiones:.1f}% ❌\nMeta: 45%")
 
-with col_b:
+with cb:
     st.markdown("**💰 Económico**")
     if porc_pbi <= 7:
         st.success(f"{porc_pbi:.1f}% del PBI ✅\nViable en 10 años")
@@ -225,15 +301,14 @@ with col_b:
     else:
         st.error(f"{porc_pbi:.1f}% del PBI ❌\nMuy alta para el contexto")
 
-with col_c:
+with cc:
     st.markdown("**👷 Social**")
-    cobertura = empleos_nuevos / max(desplazados, 1)
     if cobertura >= 1.5:
-        st.success(f"{int(empleos_nuevos):,} empleos nuevos ✅\nCubre {cobertura:.1f}x desplazados")
+        st.success(f"{int(empleos_nuevos):,} empleos ✅\nCubre {cobertura:.1f}x desplazados")
     elif cobertura >= 1:
-        st.warning(f"{int(empleos_nuevos):,} empleos nuevos ⚠️\nCubre {cobertura:.1f}x desplazados")
+        st.warning(f"{int(empleos_nuevos):,} empleos ⚠️\nCubre {cobertura:.1f}x desplazados")
     else:
-        st.error(f"{int(empleos_nuevos):,} empleos nuevos ❌\nNo cubre desplazados ({cobertura:.1f}x)")
+        st.error(f"{int(empleos_nuevos):,} empleos ❌\nSolo {cobertura:.1f}x desplazados")
 
 st.markdown("---")
-st.caption("Datos base: CAMMESA, Secretaría de Energía, CNEA, IRENA. Análisis: Dante Rizzi — Proyecto personal UNMDP 2025.")
+st.caption("Datos base: CAMMESA, Secretaría de Energía, CNEA, IRENA, BID. Análisis: Dante Rizzi — Proyecto personal UNMDP 2025.")

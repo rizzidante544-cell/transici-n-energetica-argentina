@@ -100,9 +100,9 @@ def calcular(mix):
 
 # ── SIDEBAR ──────────────────────────────────────────────────────────────────
 st.sidebar.header("🎛️ Ajustá la matriz 2035")
-st.sidebar.markdown("Los % son participación en la **generación anual**.")
+st.sidebar.markdown("Los valores se normalizan automáticamente a 100%.")
 
-escenario_sel = st.sidebar.selectbox("📋 Cargar escenario predefinido", 
+escenario_sel = st.sidebar.selectbox("📋 Cargar escenario predefinido",
     ["— personalizado —"] + list(ESCENARIOS.keys()))
 
 if escenario_sel != "— personalizado —":
@@ -110,20 +110,24 @@ if escenario_sel != "— personalizado —":
 else:
     defaults = {"Térmica fósil": 10, "Hidro": 13, "Nuclear": 20, "Eólica": 32, "Solar": 18, "WtE": 7}
 
-termica = st.sidebar.slider("🔴 Térmica fósil (%)", 0, 100, defaults["Térmica fósil"], step=1)
-hidro   = st.sidebar.slider("🔵 Hidro (%)",          0, 100, defaults["Hidro"],         step=1)
-nuclear = st.sidebar.slider("🟣 Nuclear (%)",         0, 100, defaults["Nuclear"],       step=1)
-eolica  = st.sidebar.slider("🟢 Eólica (%)",          0, 100, defaults["Eólica"],        step=1)
-solar   = st.sidebar.slider("🟡 Solar (%)",            0, 100, defaults["Solar"],         step=1)
-wte     = st.sidebar.slider("⚫ WtE (%)",              0, 100, defaults["WtE"],           step=1)
+termica_raw = st.sidebar.slider("🔴 Térmica fósil", 0, 100, defaults["Térmica fósil"], step=1)
+hidro_raw   = st.sidebar.slider("🔵 Hidro",          0, 100, defaults["Hidro"],         step=1)
+nuclear_raw = st.sidebar.slider("🟣 Nuclear",         0, 100, defaults["Nuclear"],       step=1)
+eolica_raw  = st.sidebar.slider("🟢 Eólica",          0, 100, defaults["Eólica"],        step=1)
+solar_raw   = st.sidebar.slider("🟡 Solar",           0, 100, defaults["Solar"],         step=1)
+wte_raw     = st.sidebar.slider("⚫ WtE",             0, 100, defaults["WtE"],           step=1)
 
-total = termica + hidro + nuclear + eolica + solar + wte
-if total != 100:
-    st.sidebar.error(f"⚠️ Total: {total}% — debe ser 100%")
-    st.warning("Ajustá los sliders para que sumen 100%.")
-    st.stop()
-else:
-    st.sidebar.success(f"✅ Total: {total}%")
+suma_raw = termica_raw + hidro_raw + nuclear_raw + eolica_raw + solar_raw + wte_raw
+suma_raw = max(suma_raw, 1)  # evita división por cero si ponés todo en 0
+
+termica = termica_raw / suma_raw * 100
+hidro   = hidro_raw   / suma_raw * 100
+nuclear = nuclear_raw / suma_raw * 100
+eolica  = eolica_raw  / suma_raw * 100
+solar   = solar_raw   / suma_raw * 100
+wte     = wte_raw     / suma_raw * 100
+
+st.sidebar.success(f"✅ Normalizado a 100% (Térmica {termica:.0f}% · Hidro {hidro:.0f}% · Nuclear {nuclear:.0f}% · Eólica {eolica:.0f}% · Solar {solar:.0f}% · WtE {wte:.0f}%)")
 
 mix = {"Térmica fósil": termica, "Hidro": hidro, "Nuclear": nuclear,
        "Eólica": eolica, "Solar": solar, "WtE": wte}

@@ -194,7 +194,7 @@ with r1c1:
             startangle=90, textprops={'fontsize': 8})
     ax1.set_title("Participación en generación 2035", fontsize=11)
     st.pyplot(fig1)
-    plt.close()
+    plt.close(fig1)
 
 with r1c2:
     fig2, ax2 = plt.subplots(figsize=(6, 5))
@@ -211,7 +211,7 @@ with r1c2:
     ax2.legend(fontsize=8)
     ax2.set_title(f"Capacidad instalada real necesaria: {sum(r['gw'].values()):.0f} GW totales", fontsize=10)
     st.pyplot(fig2)
-    plt.close()
+    plt.close(fig2)
 
 st.markdown("---")
 
@@ -234,7 +234,7 @@ with r2c1:
                 f'${val:,.0f}M', va='center', fontsize=7)
     plt.tight_layout()
     st.pyplot(fig3)
-    plt.close()
+    plt.close(fig3)
 
 with r2c2:
     fig4, ax4 = plt.subplots(figsize=(6, 5))
@@ -250,7 +250,7 @@ with r2c2:
     ax4.set_title(f'Cobertura laboral: {r["cobertura"]:.2f}x desplazados\nCosto transición: USD {r["costo_laboral"]:,.0f}M', fontsize=10)
     ax4.legend(fontsize=8)
     st.pyplot(fig4)
-    plt.close()
+    plt.close(fig4)
 
 st.markdown("---")
 
@@ -284,7 +284,7 @@ ax5.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}M'))
 ax5.legend(fontsize=8)
 plt.tight_layout()
 st.pyplot(fig5)
-plt.close()
+plt.close(fig5)
 
 st.markdown(f"""
 **Supuestos del ROI:**  

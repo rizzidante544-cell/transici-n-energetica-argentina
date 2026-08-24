@@ -54,7 +54,8 @@ ESCENARIOS = {
     "Balance económico":        {"Térmica fósil": 20, "Hidro": 13, "Nuclear":  8, "Eólica": 34, "Solar": 18, "WtE": 7},
 }
 
-def calcular(mix):
+@st.cache_data
+def calcular(mix_tuple):
     demanda_2035 = DEMANDA_2024 * (1.03 ** 10)
     gen = {k: v/100 * demanda_2035 for k, v in mix.items()}
     gw = {k: gen[k] / (HORAS_AÑO * FACTOR_PLANTA[k]) for k in mix}
@@ -131,7 +132,7 @@ st.sidebar.success(f"✅ Normalizado a 100% (Térmica {termica:.0f}% · Hidro {h
 
 mix = {"Térmica fósil": termica, "Hidro": hidro, "Nuclear": nuclear,
        "Eólica": eolica, "Solar": solar, "WtE": wte}
-r = calcular(mix)
+r = calcular(tuple(mix.items()))
 
 # ── HEADER ───────────────────────────────────────────────────────────────────
 st.title("⚡ Simulador Transición Energética Argentina 2035")
@@ -301,7 +302,7 @@ st.markdown("Todos los escenarios predefinidos calculados con el mismo modelo:")
 
 filas = []
 for nombre, m in ESCENARIOS.items():
-    rc = calcular(m)
+    rc = calcular(tuple(m.items()))
     filas.append({
         "Escenario": nombre,
         "Inversión (USD M)": f"{rc['inversion']:,.0f}",
